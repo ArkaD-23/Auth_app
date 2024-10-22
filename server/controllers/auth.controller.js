@@ -2,6 +2,7 @@ import User from "../models/user.model.js";
 import bcryptjs from "bcryptjs";
 import { errorHandeler } from "../utils/error.js";
 import jwt from "jsonwebtoken";
+import { generateAccessAndRefreshTokens } from "../utils/generateTokens.js";
 
 export const signup = async (req, res) => {
   const { username, email, password } = req.body;
@@ -22,13 +23,17 @@ export const signin = async (req, res, next) => {
     if (!validUser) return next(errorHandeler(404, "User not found"));
     const validPassword = bcryptjs.compareSync(password, validUser.password);
     if (!validPassword) return next(errorHandeler(401, "Wrong credentials"));
-    const token = jwt.sign({ id: validUser._id }, process.env.JWT_SECRET);
-    const { password: hashedPassword, ...rest } = validUser._doc;
-    const expiryDate = new Date(Date.now() + 3600000);
+    const {refreshToken, accessToken} = await generateAccessAndRefreshTokens(validUser._id);
+    const options = {
+      httpOnly: true,
+      secure: true,
+    }
+    const user = User.findById(validUser._id).select("-password -refreshToken");
     res
-      .cookie("access_token", token, { httpOnly: true, expires: expiryDate })
+      .cookie("access_token", accessToken, options)
+      .cookie("refresh_token", refreshToken, options)
       .status(200)
-      .json(rest);
+      .json({user: user, accessToken, refreshToken});
   } catch (error) {
     next(error);
   }
@@ -77,7 +82,27 @@ export const google = async (req, res, next) => {
     next(error);
   }
 };
-export const signout = (req,res) => {
-  res.clearCookie('access_token').status(200).json('Signout success!');
+
+export const signout = async (req,res) => {
+  await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        refreshToken: undefined,
+      }
+    },
+    {
+      new: true,
+    }
+  );
+  const options = {
+    httpOnly: true,
+    secure: true,
+  };
+  return res
+          .status(200)
+          .clearCookie("access_token", options)
+          .clearCookie("refresh_token", options)
+          .json({message: "User logged out successfully....."});
 }
 
