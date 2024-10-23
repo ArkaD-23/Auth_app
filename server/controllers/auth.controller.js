@@ -104,5 +104,45 @@ export const signout = async (req,res) => {
           .clearCookie("access_token", options)
           .clearCookie("refresh_token", options)
           .json({message: "User logged out successfully....."});
-}
+};
+
+export const refreshAccessToken = async (req, res) => {
+  const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
+
+  if(!incomingRefreshToken) {
+    next(errorHandeler(401, "User is unauthorised......"));
+  }
+
+  try {
+    const decodedToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET,
+    )
+  
+    const user = User.findById(decodedToken?._id);
+  
+    if(!user) {
+      next(errorHandeler(404, "User not found....."));
+    }
+  
+    if(incomingRefreshToken !== user?.refreshToken) {
+      next(errorHandeler(401, "Session has been expired....."));
+    }
+  
+    const options = {
+      httpOnly: true,
+      secure: true
+    }
+    const {accessToken, newRefreshToken} = await generateAccessAndRefreshTokens(user._id);
+  
+    return res
+    .status(200)
+    .cookie("access_token", accessToken, options)
+    .cookie("refresh_token", newRefreshToken, options)
+    .json({accessToken, refreshToken: newRefreshToken, message: "Access Token refreshed!"});
+    
+  } catch (error) {
+    next(error);
+  }
+};
 
